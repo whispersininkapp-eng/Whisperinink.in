@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Profile Rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == request.auth.uid &&
+               data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+               data.createdAt == request.time;
+      }
+
+      allow read: if true;
+      allow create: if isSignedIn() && isValidUser(incoming());
+      allow update: if (isOwner(userId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'bio', 'followerCount', 'followingCount'])) ||
+                      (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['followerCount']));
+    }
+
+    // Post Rules
+    match /posts/{postId} {
+      function isValidPost(data) {
+        return data.authorId == request.auth.uid &&
+               data.content is string && data.content.size() > 0 && data.content.size() <= 10000 &&
+               data.moderationStatus in ['approved', 'flagged', 'pending'] &&
+               data.createdAt == request.time;
+      }
+
+      allow read: if (!('moderationStatus' in resource.data) || resource.data.moderationStatus == 'approved') || isOwner(resource.data.authorId);
+      allow create: if isSignedIn() && isValidPost(incoming());
+      allow update: if isSignedIn() && (
+        (isOwner(existing().authorId) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'tags', 'mood', 'audioUrl', 'audiomp3', 'moderationStatus'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentCount'])) // Counters
+      );
+      allow delete: if isOwner(existing().authorId);
+    }
+
+    // Comments
+    match /posts/{postId}/comments/{commentId} {
+      function isValidComment(data) {
+        return data.authorId == request.auth.uid &&
+               data.content is string && data.content.size() > 0 && data.content.size() <= 1000 &&
+               data.createdAt == request.time;
+      }
+
+      allow read: if true;
+      allow create: if isSignedIn() && isValidComment(incoming());
+      allow delete: if isOwner(resource.data.authorId);
+    }
+
+    // Likes Registry
+    match /likes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Follows Registry
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().followerId == request.auth.uid;
+      allow delete: if isOwner(resource.data.followerId);
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Whispers in Ink",
+  "description": "An emotional-expression platform for poems, stories, and spoken emotions. Feel. Write. Be heard.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
